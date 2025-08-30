@@ -173,6 +173,14 @@ export async function POST(request: NextRequest) {
     // Step 3: Generate complete Next.js project structure
     logs.push("Generating project files...")
     const projectFiles = generateProjectFiles(nodes, projectName)
+    const rootPage = projectFiles.find(f => f.path === 'app/page.tsx')
+    logs.push(`Generated files: ${projectFiles.map(f=>f.path).join(', ')}`)
+    if (rootPage) {
+      const preview = rootPage.content.split('\n').slice(0,15).join('\n')
+      logs.push('Root page preview:\n' + preview)
+    } else {
+      logs.push('WARNING: app/page.tsx not generated!')
+    }
 
     // Commit files (initial push)
     logs.push("Committing files to repository...")
@@ -198,7 +206,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 4: Deploy to Vercel (optional direct deploy). Can be disabled with env DIRECT_VERCEL_DEPLOY=false
-    const directDeployEnabled = (process.env.DIRECT_VERCEL_DEPLOY || 'true').toLowerCase() !== 'false'
+  // Default now 'false' to prefer reliable git-based deployment unless explicitly enabled
+  const directDeployEnabled = (process.env.DIRECT_VERCEL_DEPLOY || 'false').toLowerCase() !== 'false'
     let deploymentUrl = ""
     if (directDeployEnabled) {
       logs.push("Attempting direct Vercel deployment via API...")
@@ -446,7 +455,7 @@ export default function RootLayout({
   if (dataNodes.length > 0) {
     files.push({
       path: 'lib/supabase.ts',
-      content: `import { createClient } from '@supabase/supabase-js'\n\nconst supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!\nconst supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!\n\nexport const supabase = createClient(supabaseUrl, supabaseAnonKey)\n`
+      content: `import { createClient, SupabaseClient } from '@supabase/supabase-js'\n\nconst supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;\nconst supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;\n\nlet supabase: SupabaseClient | null = null;\nif (supabaseUrl && supabaseAnonKey) {\n  try {\n    supabase = createClient(supabaseUrl, supabaseAnonKey);\n  } catch (e) {\n    console.warn('Failed to init Supabase client', e);\n  }\n} else {\n  console.warn('Supabase env vars missing; data features disabled.');\n}\n\nexport { supabase };\n`
     });
   }
 
