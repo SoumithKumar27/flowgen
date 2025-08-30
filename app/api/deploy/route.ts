@@ -92,8 +92,8 @@ async function triggerGitDeployment(projectName: string, repoId: string | number
     })
   });
   if (!res.ok) {
-    const txt = await res.text();
-    logs.push(`Git-based deployment trigger failed: ${txt}`);
+  const txt = await res.text();
+  logs.push(`Git-based deployment trigger failed (status ${res.status}): ${txt.substring(0,400)}`);
     return null;
   }
   const data = await res.json();
@@ -210,6 +210,7 @@ export async function POST(request: NextRequest) {
     // Step 4: Deploy to Vercel (optional direct deploy). Can be disabled with env DIRECT_VERCEL_DEPLOY=false
   // Default now 'false' to prefer reliable git-based deployment unless explicitly enabled
   const directDeployEnabled = (process.env.DIRECT_VERCEL_DEPLOY || 'false').toLowerCase() !== 'false'
+  logs.push(`Direct deploy enabled: ${directDeployEnabled}`)
     let deploymentUrl = ""
     if (directDeployEnabled) {
       logs.push("Attempting direct Vercel deployment via API...")
@@ -238,6 +239,23 @@ export async function POST(request: NextRequest) {
           logs.push('Git deployment did not become READY during polling window.')
         }
       }
+    } else {
+      logs.push('No commit SHA available; skipping git-based deployment trigger.')
+    }
+
+    // Fallback: if still no URL, attempt a direct file deploy regardless of flag (last resort)
+    if (!deploymentUrl) {
+      logs.push('No deployment URL resolved yet. Attempting fallback direct file deployment...')
+      try {
+        deploymentUrl = await deployToVercel(projectFiles, uniqueProjectName)
+        logs.push('Fallback direct deployment succeeded: ' + deploymentUrl)
+      } catch (e:any) {
+        logs.push('Fallback direct deployment failed: ' + (e?.message || String(e)))
+      }
+    }
+
+    if (!deploymentUrl) {
+      logs.push('FINAL WARNING: Deployment produced no live URL. Check Vercel dashboard for project/build errors.')
     }
     logs.push("Deployment process finished.")
     logs.push("Next step: Import the GitHub repo into Vercel (https://vercel.com/new) for automated builds, or enable direct deployment.")
