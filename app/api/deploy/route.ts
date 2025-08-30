@@ -7,7 +7,7 @@ const github = new Octokit({
 })
 
 async function deployToVercel(projectFiles: any[], projectName: string) {
-  const filesPayload = {};
+  const filesPayload: { [key: string]: any } = {};
   projectFiles.forEach(file => {
     filesPayload[file.path] = file.content;
   });
@@ -106,7 +106,10 @@ export async function POST(request: NextRequest) {
       logs.push("Vercel deployment failed: " + (err instanceof Error ? err.message : String(err)))
       throw err
     }
-    logs.push("Deployment completed successfully!")
+  logs.push("Deployment completed successfully!");
+  logs.push("✅ Deployment step complete!");
+  logs.push("To view your app live, connect the generated GitHub repository to Vercel (https://vercel.com/new) and import your repo. Vercel will build and deploy automatically.");
+  logs.push(`GitHub repo: ${repoUrl}`);
 
     const result: DeploymentResult = {
       success: true,
