@@ -6,6 +6,32 @@ const github = new Octokit({
   auth: process.env.GITHUB_TOKEN,
 })
 
+async function deployToVercel(projectFiles, projectName) {
+  const filesPayload = projectFiles.map(file => ({
+    file: file.path,
+    data: file.content,
+  }));
+  const response = await fetch('https://api.vercel.com/v13/deployments', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.VERCEL_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: projectName,
+      files: filesPayload,
+      projectSettings: {
+        framework: 'nextjs',
+      },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Vercel deployment failed: ${await response.text()}`);
+  }
+  const result = await response.json();
+  return result.url; // This is the live deployment URL
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: DeploymentRequest = await request.json()
@@ -70,19 +96,16 @@ export async function POST(request: NextRequest) {
     
     logs.push("All files committed successfully")
 
-    // Step 4: Deploy to Vercel (simplified for hackathon demo)
+    // Step 4: Deploy to Vercel (real API call)
     logs.push("Deploying to Vercel...")
-    
-    // For hackathon demo, we'll create a mock deployment URL
-    // In production, you would integrate with Vercel's actual deployment API
-    const deploymentUrl = `https://${uniqueProjectName}.vercel.app`
-    
-    logs.push(`Mock deployment created: ${deploymentUrl}`)
-    logs.push("Note: This is a demo deployment URL for hackathon purposes")
-    
-    // Simulate deployment time
-    await new Promise(resolve => setTimeout(resolve, 3000)) // Wait 3 seconds
-    
+    let deploymentUrl = ""
+    try {
+      deploymentUrl = await deployToVercel(projectFiles, uniqueProjectName)
+      logs.push(`Deployment created: ${deploymentUrl}`)
+    } catch (err) {
+      logs.push("Vercel deployment failed: " + (err instanceof Error ? err.message : String(err)))
+      throw err
+    }
     logs.push("Deployment completed successfully!")
 
     const result: DeploymentResult = {
