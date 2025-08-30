@@ -66,6 +66,8 @@ async function ensureVercelProject(projectName: string, fullRepoName: string, lo
     return false;
   }
   logs.push('Vercel project created & linked.');
+  // Small delay to allow Git linkage to propagate
+  await new Promise(r => setTimeout(r, 2000));
   return true;
 }
 
@@ -306,12 +308,7 @@ function generateProjectFiles(nodes: FlowNode[], projectName: string) {
   files.push({
     path: 'next.config.js',
     content: `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
-}
-
+const nextConfig = {}
 module.exports = nextConfig`
   })
 
@@ -436,11 +433,16 @@ export default function RootLayout({
       path: 'app/page.tsx',
       content: `export default function HomePage() {\n  return <div>FlowGen app scaffold created. Add a Page node to populate content.</div>;\n}`
     });
+    files.push({
+      path: 'pages/index.tsx',
+      content: `export default function Index() {\n  return <div>FlowGen pages router fallback. Add a Page node.</div>;\n}`
+    });
   } else {
     // Main page from first page node
     const mainPage = pageNodes[0];
     const mainPageWrapped = wrapPage(mainPage.data.label || 'Home', (mainPage.data.generatedCode as string) || '', true);
-    files.push({ path: 'app/page.tsx', content: mainPageWrapped });
+  files.push({ path: 'app/page.tsx', content: mainPageWrapped });
+  files.push({ path: 'pages/index.tsx', content: `export { default } from '../app/page'` });
 
     // Additional pages
     pageNodes.slice(1).forEach(node => {
