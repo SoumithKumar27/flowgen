@@ -6,11 +6,11 @@ const github = new Octokit({
   auth: process.env.GITHUB_TOKEN,
 })
 
-async function deployToVercel(projectFiles, projectName) {
-  const filesPayload = projectFiles.map(file => ({
-    file: file.path,
-    data: file.content,
-  }));
+async function deployToVercel(projectFiles: any[], projectName: string) {
+  const filesPayload = {};
+  projectFiles.forEach(file => {
+    filesPayload[file.path] = file.content;
+  });
   const response = await fetch('https://api.vercel.com/v13/deployments', {
     method: 'POST',
     headers: {
