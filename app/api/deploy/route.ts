@@ -277,14 +277,23 @@ export default function RootLayout({
     const mainPageCode = (mainPage.data.generatedCode ?? '').replace(/class="/g, 'className="');
     files.push({
       path: 'app/page.tsx',
-      content: `export default function HomePage() {
-  }
-
-  // Add Supabase client if there are data nodes
-  const dataNodes = nodes.filter(node => node.data.type === 'data' && node.data.schema)
-  if (dataNodes.length > 0) {
-    files.push({
+      content: mainPageCode
     });
+
+    // Add Supabase client if there are data nodes
+    const dataNodes = nodes.filter(node => node.data.type === 'data' && node.data.schema);
+    if (dataNodes.length > 0) {
+      files.push({
+        path: 'lib/supabase.ts',
+        content: `import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+`
+      });
+    }
 
     // Additional pages
     pageNodes.slice(1).forEach((node) => {
@@ -292,17 +301,9 @@ export default function RootLayout({
       const pageCode = (node.data.generatedCode ?? '').replace(/class="/g, 'className="');
       files.push({
         path: `app/${pageName}/page.tsx`,
-        content: `export default function ${node.data.label.replace(/\s+/g, '')}Page() {
-      path: 'lib/supabase.ts',
-      content: `import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
+        content: pageCode
       });
     });
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)`
-    })
   }
 
   return files
