@@ -274,12 +274,13 @@ export default function RootLayout({
   if (pageNodes.length > 0) {
     // Main page from first page node
     const mainPage = pageNodes[0]
-    files.push({
+      const mainPageCode = mainPage.data.generatedCode.replace(/class="/g, 'className="');
+      files.push({
       path: 'app/page.tsx',
       content: `export default function HomePage() {
   return (
     <div>
-      ${mainPage.data.generatedCode}
+        ${mainPageCode}
     </div>
   )
 }`
@@ -288,12 +289,13 @@ export default function RootLayout({
     // Additional pages
     pageNodes.slice(1).forEach((node) => {
       const pageName = node.data.label.toLowerCase().replace(/\s+/g, '-')
-      files.push({
+        const pageCode = node.data.generatedCode.replace(/class="/g, 'className="');
+        files.push({
         path: `app/${pageName}/page.tsx`,
         content: `export default function ${node.data.label.replace(/\s+/g, '')}Page() {
   return (
     <div>
-      ${node.data.generatedCode}
+        ${pageCode}
     </div>
   )
 }`
