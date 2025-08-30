@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 
 interface DataNodeProps extends NodeProps {
   data: FlowNodeData
-  selected?: boolean
+  selected: boolean
 }
 
 export function DataNode({ data, selected }: DataNodeProps) {
