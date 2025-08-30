@@ -26,10 +26,100 @@ async function deployToVercel(projectFiles: any[], projectName: string) {
     }),
   });
   if (!response.ok) {
-    throw new Error(`Vercel deployment failed: ${await response.text()}`);
+  throw new Error(`Vercel deployment failed: ${await response.text()}`);
   }
   const result = await response.json();
   return result.url; // This is the live deployment URL
+}
+
+// Ensure a Vercel project exists and is linked to the GitHub repo.
+async function ensureVercelProject(projectName: string, fullRepoName: string, logs: string[]) {
+  const teamId = process.env.VERCEL_TEAM_ID;
+  const base = teamId ? `https://api.vercel.com/v9/projects/${projectName}?teamId=${teamId}` : `https://api.vercel.com/v9/projects/${projectName}`;
+  const headers = { 'Authorization': `Bearer ${process.env.VERCEL_TOKEN}`, 'Content-Type': 'application/json' } as const;
+  // Check if exists
+  const getRes = await fetch(base, { headers });
+  if (getRes.status === 200) {
+    logs.push('Vercel project already exists.');
+    return true;
+  }
+  if (getRes.status !== 404) {
+    logs.push(`Unexpected Vercel project lookup status: ${getRes.status}`);
+  }
+  logs.push('Creating Vercel project (linking GitHub repo)...');
+  const createUrl = teamId ? `https://api.vercel.com/v9/projects?teamId=${teamId}` : 'https://api.vercel.com/v9/projects';
+  const createRes = await fetch(createUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      name: projectName,
+      framework: 'nextjs',
+      gitRepository: { type: 'github', repo: fullRepoName },
+      buildCommand: null,
+      devCommand: null,
+      rootDirectory: null,
+    })
+  });
+  if (!createRes.ok) {
+    const txt = await createRes.text();
+    logs.push(`Failed to create Vercel project: ${txt}`);
+    return false;
+  }
+  logs.push('Vercel project created & linked.');
+  return true;
+}
+
+async function triggerGitDeployment(projectName: string, repoId: string | number, commitSha: string, logs: string[]) {
+  const teamId = process.env.VERCEL_TEAM_ID;
+  const url = teamId ? `https://api.vercel.com/v13/deployments?teamId=${teamId}` : 'https://api.vercel.com/v13/deployments';
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.VERCEL_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: projectName,
+      project: projectName,
+      gitSource: {
+        type: 'github',
+        repoId: repoId.toString(),
+        ref: 'main',
+        sha: commitSha
+      }
+    })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    logs.push(`Git-based deployment trigger failed: ${txt}`);
+    return null;
+  }
+  const data = await res.json();
+  logs.push('Git deployment triggered. Deployment id: ' + data.id);
+  return data;
+}
+
+async function pollDeploymentUntilReady(id: string, logs: string[], projectName: string): Promise<string | null> {
+  const teamId = process.env.VERCEL_TEAM_ID;
+  for (let i = 0; i < 40; i++) { // ~2m max (40 * 3s)
+    await new Promise(r => setTimeout(r, 3000));
+    const url = teamId ? `https://api.vercel.com/v13/deployments/${id}?teamId=${teamId}` : `https://api.vercel.com/v13/deployments/${id}`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${process.env.VERCEL_TOKEN}` } });
+    if (!res.ok) {
+      logs.push(`Poll failed status ${res.status}`);
+      continue;
+    }
+    const data = await res.json();
+    const state = data.readyState;
+    logs.push(`Deployment state: ${state}`);
+    if (state === 'READY') return data.url || data.alias?.[0] || null;
+    if (['ERROR', 'CANCELED'].includes(state)) {
+      logs.push('Deployment ended in state ' + state);
+      return null;
+    }
+  }
+  logs.push('Deployment polling timed out. Visit Vercel dashboard to inspect.');
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -76,14 +166,16 @@ export async function POST(request: NextRequest) {
     
     logs.push(`Repository created: ${repoUrl}`)
 
-    // Step 2: Generate complete Next.js project structure
+    // Step 2: Ensure Vercel project exists BEFORE committing (so first push triggers build)
+    logs.push('Ensuring Vercel project exists & is linked...')
+    await ensureVercelProject(uniqueProjectName, repoResponse.data.full_name, logs)
+
+    // Step 3: Generate complete Next.js project structure
     logs.push("Generating project files...")
-    
     const projectFiles = generateProjectFiles(nodes, projectName)
-    
-    // Step 3: Commit files to repository
+
+    // Commit files (initial push)
     logs.push("Committing files to repository...")
-    
     for (const file of projectFiles) {
       await github.rest.repos.createOrUpdateFileContents({
         owner: repoResponse.data.owner.login,
@@ -93,27 +185,59 @@ export async function POST(request: NextRequest) {
         content: Buffer.from(file.content).toString('base64'),
       })
     }
-    
-    logs.push("All files committed successfully")
+    logs.push("All files committed successfully (initial push)")
 
-    // Step 4: Deploy to Vercel (real API call)
-    logs.push("Deploying to Vercel...")
-    let deploymentUrl = ""
+    // Get latest commit sha for main branch
+    let commitSha = ''
     try {
-      deploymentUrl = await deployToVercel(projectFiles, uniqueProjectName)
-      logs.push(`Deployment created: ${deploymentUrl}`)
+      const branch = await github.rest.repos.getBranch({ owner: repoResponse.data.owner.login, repo: uniqueProjectName, branch: 'main' })
+      commitSha = branch.data.commit.sha
+      logs.push('Latest commit sha: ' + commitSha.substring(0,7))
     } catch (err) {
-      logs.push("Vercel deployment failed: " + (err instanceof Error ? err.message : String(err)))
-      throw err
+      logs.push('Could not fetch commit sha: ' + (err as any).message)
     }
-  logs.push("Deployment completed successfully!");
-  logs.push("✅ Deployment step complete!");
-  logs.push("To view your app live, connect the generated GitHub repository to Vercel (https://vercel.com/new) and import your repo. Vercel will build and deploy automatically.");
-  logs.push(`GitHub repo: ${repoUrl}`);
+
+    // Step 4: Deploy to Vercel (optional direct deploy). Can be disabled with env DIRECT_VERCEL_DEPLOY=false
+    const directDeployEnabled = (process.env.DIRECT_VERCEL_DEPLOY || 'true').toLowerCase() !== 'false'
+    let deploymentUrl = ""
+    if (directDeployEnabled) {
+      logs.push("Attempting direct Vercel deployment via API...")
+      try {
+        deploymentUrl = await deployToVercel(projectFiles, uniqueProjectName)
+        logs.push(`✅ Direct deployment created: ${deploymentUrl}`)
+      } catch (err) {
+        logs.push("⚠️ Direct Vercel deployment failed (continuing): " + (err instanceof Error ? err.message : String(err)))
+        logs.push("Proceeding with GitHub repo only. You can still deploy by importing the repo in Vercel UI.")
+      }
+    } else {
+      logs.push("Skipping direct Vercel deployment (DIRECT_VERCEL_DEPLOY disabled).")
+    }
+
+    // Step 5: Trigger git-based deployment (more reliable) if we have commit sha & project
+    if (commitSha) {
+      logs.push('Triggering git-based deployment...')
+      const gitDep = await triggerGitDeployment(uniqueProjectName, repoResponse.data.id, commitSha, logs)
+      if (gitDep?.id) {
+        const polled = await pollDeploymentUntilReady(gitDep.id, logs, uniqueProjectName)
+        if (polled) {
+          logs.push('Git deployment ready: ' + polled)
+          // Prefer git deployment URL if direct deploy absent
+          if (!deploymentUrl) deploymentUrl = polled
+        } else {
+          logs.push('Git deployment did not become READY during polling window.')
+        }
+      }
+    }
+    logs.push("Deployment process finished.")
+    logs.push("Next step: Import the GitHub repo into Vercel (https://vercel.com/new) for automated builds, or enable direct deployment.")
+    logs.push(`GitHub repo: ${repoUrl}`)
+    if (!deploymentUrl) {
+      logs.push("No live URL from direct deploy. After importing to Vercel you'll get a domain like https://<project>.vercel.app")
+    }
 
     const result: DeploymentResult = {
       success: true,
-      url: deploymentUrl,
+      url: deploymentUrl || undefined,
       repoUrl: repoUrl,
       logs: logs,
     }
