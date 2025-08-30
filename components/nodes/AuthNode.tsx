@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 
 interface AuthNodeProps extends NodeProps {
   data: FlowNodeData
-  selected?: boolean
+  selected: boolean
 }
 
 export function AuthNode({ data, selected }: AuthNodeProps) {
