@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils"
 
 interface PageNodeProps extends NodeProps {
   data: FlowNodeData
-  selected?: boolean
+  selected: boolean
 }
 
 export function PageNode({ data, selected }: PageNodeProps) {
